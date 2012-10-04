@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <!--
+    TODOs: 
+    * Style the app
+    * Test on Android
+    * Buy a domain
+    * Clean up code
+    * Fix z-index layering with new public parks layer
+    -->
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <meta charset="utf-8">
+    <title>Bike / Walk / Art / Parks Denver</title>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+
+      @media print {
+        html, body {
+          height: auto;
+        }
+
+        #map_canvas {
+          height: 650px;
+        }
+      }
+  
+      #map_canvas {
+        width: 100%;
+        height: 100%;
+        margin-bottom: -20px;
+      }
+      #accordion-main {
+        display: none;
+      }
+      #accordion-main.showing {
+        display: block;
+      }
+      button {
+        display: block;
+        width: 100%;
+      }
+      button .check {
+        visibility: hidden;
+      }
+      button.selected .check {
+        visibility: visible;
+      }
+    </style>
+  </head>
+  <body>
+    <nav>
+      <button class="expand" id="menu">MENU</button>
+    </nav>
+    <nav id="accordion-main">
+      <div id="layers-buttons"></div>
+      <button id="bike-routes-google">Bike Routes (Google)<span class="check"> &#x2713;</span></button>
+      <button id="locate-user">Locate Me</button>
+    </nav>
+    <div id="map_canvas"></div>
+    
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.8.2/jquery.min.js"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?sensor=false"></script>
+    <script>
+      // test kml layer: https://maps.google.com/?q=http://data.denvergov.org/download/gis/bike_racks/kml/bike_racks.kmz
+
+      // site data
+      var _layersData = [];
+      var _layersHash = {};
+      // _layersData.push( { active: false, kmlLayer: null, title: 'Points of Interest',   id: 'points-of-interest', kmlFile: 'http://data.denvergov.org/download/gis/points_of_interest/kml/points_of_interest.kmz'} );
+      // _layersData.push( { active: false, kmlLayer: null, title: 'Bike Shops',           id: 'bike-shops',         kmlFile: 'http://bicycle-dealers.cmac.ws/CO/Denver.kml'                } );
+      _layersData.push( { active: false, kmlLayer: null, clicks: true,  title: 'Public Parks',         id: 'public-parks',       kmlFile: 'http://data.denvergov.org/download/gis/parks/kml/parks.kmz'          } );
+      _layersData.push( { active: false, kmlLayer: null, clicks: true,  title: 'Public Art',           id: 'public-art',         kmlFile: 'http://data.denvergov.org/download/gis/public_art/kml/public_art.kmz'                } );
+      _layersData.push( { active: false, kmlLayer: null, clicks: false, title: 'Pedestrian Routes',    id: 'pedestrian-routes',  kmlFile: 'http://data.denvergov.org/download/gis/pedestrian_routes/kml/pedestrian_routes.kmz'  } );
+      _layersData.push( { active: false, kmlLayer: null, clicks: false, title: 'Bike Racks',           id: 'bike-racks',         kmlFile: 'http://data.denvergov.org/download/gis/bike_racks/kml/bike_racks.kmz'                } );
+      _layersData.push( { active: false, kmlLayer: null, clicks: true,  title: 'B-Cycle Stations',     id: 'b-cycle-stations',   kmlFile: 'http://data.denvergov.org/download/gis/b_cycle_stations/kml/b_cycle_stations.kmz'    } );
+      _layersData.push( { active: false, kmlLayer: null, clicks: false, title: 'Bike Routes (Denver)', id: 'bike-routes',        kmlFile: 'http://data.denvergov.org/download/gis/bike_routes/kml/bike_routes.kmz'              } );
+
+      var map;
+      var _pedRoutes, _publicArt, _bikeRoutes, _bCycleStations, _bikeRacks, _pointsOfInterest;
+      var infoWindow;
+      var marker;
+
+      var _layerButtons = $('#layers-buttons');
+      
+      // ADD KML LAYERS, BUTTONS, etc -----------------------------------------------------
+      function initialize() {
+        var denver = new google.maps.LatLng(39.7392,-104.9842);
+        var mapOptions = {
+          zoom: 14,
+          center: denver,
+          mapTypeId: google.maps.MapTypeId.ROADMAP
+        }
+
+        map = new google.maps.Map(document.getElementById('map_canvas'), mapOptions);
+        infoWindow = new google.maps.InfoWindow({"maxWidth": 500});
+        
+        var commonOptions = {
+          suppressInfoWindows: true, 
+          preserveViewport: true
+        };
+
+
+        // build buttons
+        for( var i=0; i < _layersData.length; i++ ) {
+          // add KmlLayers
+          var layer = _layersData[i];
+          layer.kmlLayer = new google.maps.KmlLayer( layer.kmlFile, commonOptions );
+          layer.kmlLayer.setMap(null);
+
+          if( layer.clicks == true )
+            google.maps.event.addListener( layer.kmlLayer, 'click', featureClicked );
+
+          // add button
+          _layerButtons.append('<button class="layer" id="'+ layer.id +'">'+ layer.title +'<span class="check"> &#x2713;</span></button>');
+
+          // add to hash for easy access
+          _layersHash[layer.id] = _layersData[i];
+        }
+                
+        
+        // add extra layers
+        var transitLayer = new google.maps.TransitLayer();
+        transitLayer.setMap(map);
+        
+        var bikeLayer = new google.maps.BicyclingLayer();
+        bikeLayer.setMap(map);
+      }
+      
+      function featureClicked(kmle) {
+        infoWindow.close();
+        console.log(kmle);
+        if (kmle.featureData && kmle.featureData.id) {
+          infoWindow.setOptions({ "position": kmle.latLng,
+              "pixelOffset": kmle.pixelOffset,
+              "content": kmle.featureData.infoWindowHtml
+          });
+          infoWindow.open(map);
+        }
+      }
+      
+      initialize();
+      
+      // GEOLOCATION -----------------------------------------------------
+      function locateUser() {
+        function successHandler(location) {
+            var message = document.getElementById("message"), html = [];
+            // html.push("<img width='256' height='256' src='http://maps.google.com/maps/api/staticmap?center=", location.coords.latitude, ",", location.coords.longitude, "&markers=size:small|color:blue|", location.coords.latitude, ",", location.coords.longitude, "&zoom=14&size=256x256&sensor=false' />");
+            html.push("<p>Longitude: ", location.coords.longitude, "</p>");
+            html.push("<p>Latitude: ", location.coords.latitude, "</p>");
+            html.push("<p>Accuracy: ", location.coords.accuracy, " meters</p>");
+            // message.innerHTML = html.join("");
+          
+            var userLoc = new google.maps.LatLng(location.coords.latitude, location.coords.longitude);
+          
+            if( marker ) marker.setMap(null);
+            marker = new google.maps.Marker({
+              position: userLoc,
+              title: "You Are Here.",
+              map: map,
+              icon: './blue-dot.png'
+            });
+          
+            map.panTo(userLoc);
+            map.setZoom(17);
+        }
+        function errorHandler(error) {
+            alert('Attempt to get location failed: ' + error.message);
+        }
+        navigator.geolocation.getCurrentPosition(successHandler, errorHandler);
+      }
+
+      
+      $('#locate-user').click(function(e){
+        e.preventDefault();
+        locateUser();
+      });
+      
+
+      function showGoogleBikeRoutes() {
+        $('#bike-routes-google').addClass('selected');
+        $('#bike-routes').removeClass('selected');
+        _layersHash['bike-routes'].active = false;
+        map.setMapTypeId(google.maps.MapTypeId.HYBRID);
+      } 
+
+      $('#bike-routes-google').click(function(e){
+        e.preventDefault();
+        showGoogleBikeRoutes();
+      });
+
+      // NAVIGATION -----------------------------------------------------
+      $('#menu').click(function(e){
+        e.preventDefault();
+        $('#accordion-main').toggleClass('showing');
+        $('#accordion-main button.layer').click(function(e){
+          e.preventDefault();
+          var button = $(e.target).closest('button');
+          var buttonId = button.attr('id');
+          toggleLayer(button, buttonId);
+        });
+      });
+
+      function toggleLayer( button, layerId ) {
+        var layer = _layersHash[layerId];
+        if( layer.active == false ) {
+          layer.active = true;
+          layer.kmlLayer.setMap(map);
+          button.addClass('selected');
+        } else {
+          layer.active = false;
+          layer.kmlLayer.setMap(null);
+          button.removeClass('selected');
+        }
+        map.setMapTypeId(google.maps.MapTypeId.ROADMAP);
+        $('#bike-routes-google').removeClass('selected');
+      }
+    </script>
+    
+  </body>
+</html>
